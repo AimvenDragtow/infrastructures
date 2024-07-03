@@ -1,0 +1,84 @@
+services:
+  redis:
+    image: docker.io/library/redis:alpine
+    command: --save 60 1 --loglevel warning
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "redis-cli ping | grep PONG" ]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 3s
+    volumes:
+      - redis:/data
+
+  server:
+    image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2024.6.0}
+    restart: unless-stopped
+    command: server
+    networks:
+      - traefik_proxy
+    environment:
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: ${DATABASE_HOST}
+      AUTHENTIK_POSTGRESQL__PORT: ${DATABASE_PORT}
+      AUTHENTIK_POSTGRESQL__NAME: ${DATABASE_NAME}
+      AUTHENTIK_POSTGRESQL__USER: ${DATABASE_USERNAME}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${DATABASE_PASSWORD}
+    volumes:
+      - ./media:/media
+      - ./custom-templates:/templates
+    env_file:
+      - .env
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+    depends_on:
+      - redis
+    labels:
+      - "traefik.enable=true"
+
+      - "traefik.http.routers.authentik-http.rule=Host(`auth.csorigins.com`)"
+      - "traefik.http.routers.authentik-http.entrypoints=web"
+      - "traefik.http.routers.authentik-http.service=authentik-http"
+      - "traefik.http.services.authentik-http.loadbalancer.server.port=9000"
+
+      - "traefik.http.routers.authentik-https.rule=Host(`auth.csorigins.com`)"
+      - "traefik.http.routers.authentik-https.entrypoints=websecure"
+      - "traefik.http.routers.authentik-https.service=authentik-https"
+      - "traefik.http.services.authentik-https.loadbalancer.server.port=9443"
+      - "traefik.http.routers.authentik-https.tls=true"
+      - "traefik.http.routers.authentik-https.tls.certresolver=production"
+      - "traefik.http.routers.authentik-https.tls.domains[0].main=auth.csorigins.com"
+
+  worker:
+    image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2024.6.0}
+    restart: unless-stopped
+    command: worker
+    environment:
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: ${DATABASE_HOST}
+      AUTHENTIK_POSTGRESQL__PORT: ${DATABASE_PORT}
+      AUTHENTIK_POSTGRESQL__NAME: ${DATABASE_NAME}
+      AUTHENTIK_POSTGRESQL__USER: ${DATABASE_USERNAME}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${DATABASE_PASSWORD}
+    # `user: root` and the docker socket volume are optional.
+    # See more for the docker socket integration here:
+    # https://goauthentik.io/docs/outposts/integrations/docker
+    # Removing `user: root` also prevents the worker from fixing the permissions
+    # on the mounted folders, so when removing this make sure the folders have the correct UID/GID
+    # (1000:1000 by default)
+    user: root
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./media:/media
+      - ./certs:/certs
+      - ./custom-templates:/templates
+    env_file:
+      - .env
+    depends_on:
+      - redis
+
+volumes:
+  redis:
+    driver: local
