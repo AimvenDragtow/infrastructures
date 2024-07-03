@@ -1,0 +1,51 @@
+# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
+
+name: Deploy CD
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    environment: PROD/SERVER_OVH/debian
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          path: infrastructures
+
+      - name: Upload repository to server via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.SSH_USER }}
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: infrastructures/*
+          target: /home/${{ secrets.SSH_USER }}/tmp
+          rm: true
+
+      - name: Deploy project on server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.SSH_USER }}
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            sudo rm -rf ~/infrastructures
+            sudo mv ~/tmp/* ~/infrastructures
+
+            cd ~/infrastructures
+            cd traefik
+            touch .env
+            echo 'DEBUG="${{ vars.DEBUG }}"' >> .env
+            echo 'TRAEFIK_DASHBOARD_USERS="${{ secrets.TRAEFIK_DASHBOARD_USERS }}"' >> .env
+            sudo docker compose up -d

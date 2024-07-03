@@ -1,0 +1,90 @@
+global:
+  checkNewVersion: true
+  sendAnonymousUsage: false
+
+# -- Change Log Level and Format
+#     - loglevels [DEBUG, INFO, WARNING, ERROR, CRITICAL]
+#     - format [common, json, logfmt]
+log:
+  level: INFO
+  format: common
+  filePath: /var/log/traefik/traefik.log
+
+# -- Enable Accesslog and change Format
+#     - format [common, json, logfmt]
+accesslog:
+  format: common
+  filePath: /var/log/traefik/access.log
+
+# -- Enable API and Dashboard
+api:
+  dashboard: true
+  disableDashboardAd: true
+  insecure: false
+
+# -- Change EntryPoints
+entryPoints:
+  web:
+    address: :80
+    # -- Redirect all HTTP to HTTPS
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: :443
+
+# -- Configure CertificateResolver
+certificatesResolvers:
+  staging:
+    acme:
+      email: cs.of.origins@gmail.com
+      storage: /etc/traefik/certs/acme.json
+      caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
+      # -- Configure HTTP Challenge
+      httpChallenge:
+        entryPoint: web
+      # -- Configure DNS Challenge
+      # dnsChallenge:
+      #   provider: your-resolver (e.g. cloudflare)
+      #   resolvers:
+      #     - "1.1.1.1:53"
+      #     - "8.8.8.8:53"
+  production:
+    acme:
+      email: cs.of.origins@gmail.com
+      storage: /etc/traefik/certs/acme.json
+      caServer: "https://acme-v02.api.letsencrypt.org/directory"
+      # -- Configure HTTP Challenge
+      httpChallenge:
+        entryPoint: web
+      # -- Configure DNS Challenge
+      # dnsChallenge:
+      #   provider: your-resolver (e.g. cloudflare)
+      #   resolvers:
+      #     - "1.1.1.1:53"
+      #     - "8.8.8.8:53"
+
+# -- (Optional) Disable TLS Cert verification check
+# serversTransport:
+#   insecureSkipVerify: true
+
+# -- (Optional) Overwrite Default Certificates
+# tls:
+#   stores:
+#     default:
+#       defaultCertificate:
+#         certFile: /etc/traefik/certs/cert.pem
+#         keyFile: /etc/traefik/certs/cert-key.pem
+# -- (Optional) Disable TLS version 1.0 and 1.1
+#   options:
+#     default:
+#       minVersion: VersionTLS12
+
+providers:
+  docker:
+    exposedByDefault: false
+  file:
+    directory: /etc/traefik
+    watch: true
