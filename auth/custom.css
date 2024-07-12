@@ -1,0 +1,4 @@
+/* Hide the "Powered by Authentik" text */
+li.style-scope.ak-flow-executor:has(span) {
+  display: none;
+}

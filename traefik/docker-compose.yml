@@ -1,0 +1,45 @@
+networks:
+  traefik_proxy:
+    external: true
+
+services:
+  traefik:
+    image: docker.io/library/traefik:v3.0.4
+    container_name: traefik
+    restart: unless-stopped
+    networks:
+      - traefik_proxy
+    env_file:
+      - .env
+    # -- When using Cloudflare as Cert Resolver
+    environment:
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
+    ports:
+      - 80:80
+      - 443:443
+      # -- Enable Dashboard
+      - 8080:8080
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik.yaml:/etc/traefik/traefik.yaml:ro
+      - ./config/:/etc/traefik/conf/
+      - /home/${HOME_USER}/appdata/traefik/certs/:/etc/traefik/certs/
+      - ./logs:/var/log/traefik
+    labels:
+      - "traefik.enable=true"
+
+      - "traefik.http.routers.dashboard-http.rule=Host(`traefik.csorigins.com`)"
+      - "traefik.http.routers.dashboard-http.entrypoints=web"
+      - "traefik.http.routers.dashboard-http.service=api@internal"
+      - "traefik.http.routers.dashboard-http.middlewares=auth@file"
+      # - "traefik.http.routers.dashboard-http.middlewares=oldauth"
+
+      - "traefik.http.routers.dashboard-https.rule=Host(`traefik.csorigins.com`)"
+      - "traefik.http.routers.dashboard-https.entrypoints=websecure"
+      - "traefik.http.routers.dashboard-https.service=api@internal"
+      - "traefik.http.routers.dashboard-https.middlewares=auth@file"
+      # - "traefik.http.routers.dashboard-https.middlewares=oldauth"
+      - "traefik.http.routers.dashboard-https.tls=true"
+      - "traefik.http.routers.dashboard-https.tls.certresolver=production"
+      - "traefik.http.routers.dashboard-https.tls.domains[0].main=traefik.csorigins.com"
+      # - "traefik.http.middlewares.oldauth.digestauth.users=${TRAEFIK_DASHBOARD_USERS}"

@@ -1,0 +1,122 @@
+networks:
+  traefik_proxy:
+    external: true
+
+services:
+  postgresql:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      - traefik_proxy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"
+        ]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    volumes:
+      - database:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_USER: ${DATABASE_USERNAME}
+      POSTGRES_DB: ${DATABASE_NAME}
+    env_file:
+      - .env
+
+  redis:
+    image: docker.io/library/redis:alpine
+    command: --save 60 1 --loglevel warning
+    restart: unless-stopped
+    networks:
+      - traefik_proxy
+    healthcheck:
+      test: [ "CMD-SHELL", "redis-cli ping | grep PONG" ]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 3s
+    volumes:
+      - redis:/data
+
+  server:
+    image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2024.6.1}
+    container_name: auth-server
+    restart: unless-stopped
+    command: server
+    networks:
+      - traefik_proxy
+    environment:
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__PORT: ${DATABASE_PORT}
+      AUTHENTIK_POSTGRESQL__NAME: ${DATABASE_NAME}
+      AUTHENTIK_POSTGRESQL__USER: ${DATABASE_USERNAME}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${DATABASE_PASSWORD}
+    volumes:
+      - ./banner.svg:/web/dist/assets/icons/icon_left_brand.svg
+      - ./banner.png:/web/dist/assets/icons/icon_left_brand.png
+      - ./icon.png:/web/dist/assets/icons/icon.png
+      - ./background.jpg:/web/dist/assets/images/flow_background.jpg
+      - ./custom.css:/web/dist/custom.css
+      - /home/${HOME_USER}/appdata/auth/media:/media
+      - /home/${HOME_USER}/appdata/auth/custom-templates:/templates
+    env_file:
+      - .env
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+    depends_on:
+      - postgresql
+      - redis
+    labels:
+      - "traefik.enable=true"
+
+      - "traefik.http.routers.authentik-http.rule=Host(`auth.csorigins.com`) || PathPrefix(`/outpost.goauthentik.io/`)"
+      - "traefik.http.routers.authentik-http.entrypoints=web"
+
+      - "traefik.http.routers.authentik-https.rule=Host(`auth.csorigins.com`) || PathPrefix(`/outpost.goauthentik.io/`)"
+      - "traefik.http.routers.authentik-https.entrypoints=websecure"
+      - "traefik.http.routers.authentik-https.tls=true"
+      - "traefik.http.routers.authentik-https.tls.certresolver=production"
+      - "traefik.http.routers.authentik-https.tls.domains[1].main=auth.csorigins.com"
+
+  worker:
+    image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2024.6.1}
+    restart: unless-stopped
+    command: worker
+    networks:
+      - traefik_proxy
+    environment:
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__PORT: ${DATABASE_PORT}
+      AUTHENTIK_POSTGRESQL__NAME: ${DATABASE_NAME}
+      AUTHENTIK_POSTGRESQL__USER: ${DATABASE_USERNAME}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${DATABASE_PASSWORD}
+    # `user: root` and the docker socket volume are optional.
+    # See more for the docker socket integration here:
+    # https://goauthentik.io/docs/outposts/integrations/docker
+    # Removing `user: root` also prevents the worker from fixing the permissions
+    # on the mounted folders, so when removing this make sure the folders have the correct UID/GID
+    # (1000:1000 by default)
+    user: root
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/${HOME_USER}/appdata/auth/media:/media
+      - /home/${HOME_USER}/appdata/auth/certs:/certs
+      - /home/${HOME_USER}/appdata/auth/custom-templates:/templates
+    env_file:
+      - .env
+    depends_on:
+      - postgresql
+      - redis
+
+volumes:
+  database:
+    driver: local
+  redis:
+    driver: local

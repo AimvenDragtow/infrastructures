@@ -1,0 +1,80 @@
+# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
+
+name: Deploy CD
+
+on:
+  push:
+    branches: ["main"]
+  pull_request_target:
+    types: [closed]
+    branches: ["main"]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    environment: PROD/SERVER_OVH/debian
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          path: infrastructures
+
+      - name: Upload repository to server via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.SSH_USER }}
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: infrastructures/*
+          target: /home/${{ secrets.SSH_USER }}/tmp
+          rm: true
+
+      - name: Deploy project on server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.SSH_USER }}
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd ~/infrastructures/auth
+            sudo docker compose down
+            cd ~/infrastructures/traefik
+            sudo docker compose down
+
+            sudo rm -rf ~/infrastructures
+            sudo mv ~/tmp/* ~/infrastructures
+
+            cd ~/infrastructures/traefik
+            touch .env
+            echo 'DEBUG="${{ vars.DEBUG }}"' >> .env
+            echo 'HOME_USER="${{ secrets.SSH_USER }}"' >> .env
+            echo 'CF_DNS_API_TOKEN="${{ secrets.CF_DNS_API_TOKEN }}"' >> .env
+            echo 'TRAEFIK_DASHBOARD_USERS="${{ secrets.TRAEFIK_DASHBOARD_USERS }}"' >> .env
+            sudo docker compose up -d
+
+            cd ~/infrastructures/auth
+            touch .env
+            echo 'DEBUG="${{ vars.DEBUG }}"' >> .env
+            echo 'HOME_USER="${{ secrets.SSH_USER }}"' >> .env
+            echo 'AUTHENTIK_SECRET_KEY="${{ secrets.AUTH_SECRET_KEY }}"' >> .env
+            echo 'DATABASE_HOST="${{ secrets.AUTH_DATABASE_HOST }}"' >> .env
+            echo 'DATABASE_PORT="${{ secrets.AUTH_DATABASE_PORT }}"' >> .env
+            echo 'DATABASE_NAME="${{ secrets.AUTH_DATABASE_NAME }}"' >> .env
+            echo 'DATABASE_USERNAME="${{ secrets.AUTH_DATABASE_USERNAME }}"' >> .env
+            echo 'DATABASE_PASSWORD="${{ secrets.AUTH_DATABASE_PASSWORD }}"' >> .env
+            echo 'AUTHENTIK_EMAIL__USE_TLS=true' >> .env
+            echo 'AUTHENTIK_EMAIL__USE_SSL=true' >> .env
+            echo 'AUTHENTIK_EMAIL__HOST="${{ secrets.AUTH_EMAIL_HOST }}"' >> .env
+            echo 'AUTHENTIK_EMAIL__PORT="${{ secrets.AUTH_EMAIL_PORT }}"' >> .env
+            echo 'AUTHENTIK_EMAIL__FROM="${{ secrets.AUTH_EMAIL }}"' >> .env
+            echo 'AUTHENTIK_EMAIL__USERNAME="${{ secrets.AUTH_EMAIL }}"' >> .env
+            echo 'AUTHENTIK_EMAIL__PASSWORD="${{ secrets.AUTH_EMAIL_PASSWORD }}"' >> .env
+            echo 'AUTHENTIK_EMAIL__TIMEOUT=10' >> .env
+            sudo docker compose up -d
